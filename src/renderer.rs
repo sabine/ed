@@ -7,6 +7,7 @@ use self::tera::{Tera, Result, Value, try_get_value, to_value, from_value, Globa
 
 use std::io::prelude::*; // to read from file
 
+use thumbnail;
 
 fn string_from_file(path: std::path::PathBuf) -> String {
   let mut file = std::fs::File::open(path).unwrap();
@@ -156,8 +157,8 @@ fn filter_thumbnail (value: Value, args: HashMap<String, Value>) -> Result<Value
   let path_string = "/thumbnails/".to_string()+&format!("{}-{}/", width, height)+&s;
   
   tmp.lock().unwrap().thumbnail_requests.push(
-    ThumbnailRequest {
-      path: std::path::PathBuf::from(s.clone()),
+    thumbnail::ThumbnailRequest {
+      src: std::path::PathBuf::from(s.clone()),
       width: width.as_u64().unwrap() as u32,
       height: height.as_u64().unwrap() as u32,
       url: path_string.clone(),
@@ -203,24 +204,6 @@ fn render_content_type(content_type: &ContentType, editable: bool, data: String,
   }
 }
 
-
-#[derive(Debug)]
-#[derive(Clone)]
-pub struct ThumbnailRequest {
-  pub path: std::path::PathBuf,
-  pub width: u32,
-  pub height: u32,
-  pub url: String,
-}
-
-impl std::fmt::Display for ThumbnailRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "< Path:{}, ", self.path.to_string_lossy())?;
-        write!(f, "width/height: {}/{} > ", &self.width, &self.height)?;
-        Ok(())
-    }
-}
-
 impl std::fmt::Display for RendererResult {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "sizeof Html: {}\n", self.html.len())?;
@@ -235,12 +218,12 @@ impl std::fmt::Display for RendererResult {
 #[derive(Debug)]
 pub struct RendererResult {
   pub html: String,
-  pub thumbnail_requests: Vec<ThumbnailRequest>
+  pub thumbnail_requests: Vec<thumbnail::ThumbnailRequest>
 }
 
 
 struct Tmp {
-  thumbnail_requests: Vec<ThumbnailRequest>
+  thumbnail_requests: Vec<thumbnail::ThumbnailRequest>
 }
 
 lazy_static! {

@@ -25,9 +25,13 @@ use std::fs::File;
 //use std::error::Error;
 use std::io::prelude::*;
 
+mod thumbnail;
 mod renderer;
 use renderer::{TeraRenderer, Renderer, RendererConfig, RendererResult, ContentType, load_content_types};
 mod css;
+mod paths;
+
+use paths::*;
 
 
 
@@ -64,18 +68,6 @@ fn js_invoke (cmd: Cmd) -> String {
 
 fn js_button (cmd: Cmd, text: &str) -> String {
   format!("<button onclick=\"{cmd}\">{text}</button>", cmd=js_invoke(cmd).replace("\"", "'"), text=text)
-}
-
-fn asset_path (path: &std::path::Path) -> std::path::PathBuf {
-  path.join("assets/")
-}
-
-fn output_path (path: &std::path::Path) -> std::path::PathBuf {
-  path.join("rust-www/")
-}
-
-fn pages_path (path: &std::path::Path) -> std::path::PathBuf {
-  path.join("pages/")
 }
 
 fn url_from_filename (filename: &str) -> String {
@@ -119,16 +111,6 @@ fn render(path: &std::path::Path, page: String, url: String, editable: bool) -> 
   result
 }
 
-fn render_thumbnail (path: &std::path::Path, thumbnail_request: &renderer::ThumbnailRequest) -> () {
-  let p = output_path(&path).join(&std::path::Path::new(&(".".to_string()+&thumbnail_request.url)));
-  println!("render_thumbnail: {:?} -> {:?}", thumbnail_request, p);
-  
-  std::fs::create_dir_all(p.parent().unwrap());
-  
-  let img = image::open(&asset_path(&path).join(&thumbnail_request.path)).unwrap();
-  img.thumbnail(thumbnail_request.width, thumbnail_request.height).save(&p);
-}
-
 fn render_page (path: &std::path::Path, name: &str) -> () {
   let result = render(path, name.to_string(), url_from_filename(&name).to_string(), false);
   
@@ -142,7 +124,7 @@ fn render_page (path: &std::path::Path, name: &str) -> () {
   file.write_all(&result.html.as_bytes());
   
   for thumbnail_request in result.thumbnail_requests {
-    render_thumbnail(&path, &thumbnail_request);
+    thumbnail::render_thumbnail(&path, &thumbnail_request);
   }
 }
 
