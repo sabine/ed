@@ -175,8 +175,6 @@ fn render_project (path: &std::path::Path, pages: &Vec<String>) -> () {
       std::fs::copy(source, target);
     }
   }
-
-  // TODO: copy thumbnails after they were created
 }
 
 impl Editor {
@@ -351,8 +349,6 @@ fn main() {
           
           
             Page::EditPage {ref path, ref filename} => {
-              //let p = &std::path::PathBuf::from(path);
-              
               let result = render(path, filename.clone(), url_from_filename(&filename).to_string(), true);
               
               result.html
@@ -363,20 +359,19 @@ fn main() {
         _ => {
           match rouille_editor.read().unwrap().current_page {
             Page::EditPage{ref path, ref filename} => {
-              //let path = &std::path::PathBuf::from(p);
-              let response = rouille::match_assets(&request, &path.join("assets"));
+              let response = rouille::match_assets(&request, &asset_path(&path));
               if response.is_success() {
                 return response.with_no_cache();
               } else {
-                let editor_response = rouille::match_assets(&request, "./assets/");
+                let editor_response = rouille::match_assets(&request, &asset_path(std::path::Path::new(".")));
                 if editor_response.is_success() {
                   return editor_response.with_no_cache();
                 } else {
                   rouille::Response::empty_404()
                 }
               }
-            }
-            _ => rouille::Response::empty_404()
+            },
+            _ => rouille::Response::empty_404(),
           }
         }
       )
@@ -385,7 +380,7 @@ fn main() {
 
   fn compile (path: &std::path::Path, event: &DebouncedEvent, sender: &Sender<()>) -> () {
     fn c (path: &std::path::Path, sender: &Sender<()>) -> () {
-      css::compile_sass(&path, &path.join("assets"));
+      css::compile_sass(&path, &asset_path(&path));
       sender.send(());
     }
   
