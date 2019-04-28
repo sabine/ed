@@ -30,6 +30,7 @@ mod renderer;
 use renderer::{TeraRenderer, Renderer, RendererConfig, RendererResult, ContentType, load_content_types};
 mod css;
 mod paths;
+mod ftp_upload;
 
 use paths::*;
 
@@ -219,7 +220,6 @@ impl Editor {
           Page::ProjectPage {ref path, ref config, ref pages} => {
             render_project(path, pages);
             
-            use ftp::FtpStream;
             let ftp = config.get("ftp").unwrap();
             let host = ftp.get("host").unwrap().as_str().unwrap();
             let user = ftp.get("user").unwrap().as_str().unwrap();
@@ -229,38 +229,7 @@ impl Editor {
               Some(v) => v.as_str().unwrap(),
             };
             
-            let mut ftp_stream = FtpStream::connect(host).unwrap();
-            ftp_stream.login(user, pass).unwrap();
-            println!("ls: {}", ftp_stream.list(None).unwrap().join("\n"));
-            
-            ftp_stream.rmdir("/");
-            
-            let source_path = output_path(&path);
-            
-            for entry in walkdir::WalkDir::new(&source_path) {
-              let e = entry.unwrap();
-              if e.file_type().is_dir() {
-                let d = e.path().strip_prefix(&source_path).unwrap();
-                println!("dir: {:?}", d);
-                
-                for a in d.components() {
-                  let s = a.as_os_str().to_str().unwrap().replace("\\","/");
-                  ftp_stream.mkdir(&s);
-                  println!("ls: {}", ftp_stream.list(None).unwrap().join("\n"));
-                  ftp_stream.cwd(&s);
-                }
-                ftp_stream.cwd(remote);
-              }
-              if e.file_type().is_file() {
-                let mut source = File::open(e.path()).unwrap();
-                let target = e.path().strip_prefix(&source_path).unwrap();
-                println!("source: {:?}", source);
-                println!("target: {:?}", target);
-                ftp_stream.put(&target.to_str().unwrap().replace("\\","/"), &mut source);
-              }
-            }
-            
-            let _ = ftp_stream.quit();
+            ftp_upload::upload (host, user, pass, remote, &output_path(&path));
           },
           _ => {
             panic!("Wrong page!");
