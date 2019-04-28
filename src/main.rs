@@ -25,12 +25,14 @@ use std::fs::File;
 //use std::error::Error;
 use std::io::prelude::*;
 
+mod utils;
 mod thumbnail;
 mod renderer;
 use renderer::{TeraRenderer, Renderer, RendererConfig, RendererResult, ContentType, load_content_types};
 mod css;
 mod paths;
 mod ftp_upload;
+mod data;
 
 use paths::*;
 
@@ -94,9 +96,7 @@ fn render(path: &std::path::Path, page: String, url: String, editable: bool) -> 
   let p = path.join("pages").join(json_filename);
   println!("Path: {}\n", path.to_string_lossy());
   println!("Datafile: {}\n", p.to_string_lossy());
-  let mut datafile = File::open(p).unwrap();
-  let mut datastring = String::new();
-  datafile.read_to_string(&mut datastring).unwrap();
+  let datastring = utils::read_string_from_file(&p);
 
   let json: serde_json::Value = serde_json::from_str(&datastring).expect("JSON was not well-formatted");
   

@@ -9,3 +9,7 @@ pub fn output_path (path: &std::path::Path) -> std::path::PathBuf {
 pub fn pages_path (path: &std::path::Path) -> std::path::PathBuf {
   path.join("pages/")
 }
+
+pub fn data_path (path: &std::path::Path) -> std::path::PathBuf {
+  path.join("data/")
+}

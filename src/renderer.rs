@@ -8,6 +8,7 @@ use self::tera::{Tera, Result, Value, try_get_value, to_value, from_value, Globa
 use std::io::prelude::*; // to read from file
 
 use thumbnail;
+use data;
 
 fn string_from_file(path: std::path::PathBuf) -> String {
   let mut file = std::fs::File::open(path).unwrap();
@@ -138,11 +139,10 @@ fn make_content_function () -> GlobalFn {
   })
 }
 
-fn make_data_function () -> GlobalFn {
+fn make_data_function (path: std::path::PathBuf) -> GlobalFn {
   Box::new(move |args: HashMap<String, Value>| -> Result<Value> {
     match args.get("name") {
-      Some(n) => Ok(to_value(json!([])).unwrap()),
-      // TODO: implement data source lookup
+      Some(n) => Ok(to_value(data::load(&path, &args)).unwrap()),
       None => Err("'name' parameter missing.".into()),
     }
   })
@@ -245,7 +245,7 @@ impl Renderer for TeraRenderer {
     let mut t =  Tera::new(&self.path.join("templates/**/*.tera").to_str().unwrap()).unwrap();
     t.register_filter("asset", filter_asset);
     t.register_function("content", make_content_function());
-    t.register_function("data", make_data_function());
+    t.register_function("data", make_data_function(self.path.to_path_buf()));
     t.register_filter("thumbnail", filter_thumbnail);
     
     let mut above = String::new();
@@ -265,7 +265,7 @@ impl Renderer for TeraRenderer {
 <script>
 window.data = {data};
 {js}</script>
-    "#, data=data.to_string(), js=string_from_file(std::path::PathBuf::from("./editPage.js")));
+    "#, data=data.to_string(), js=string_from_file(std::path::PathBuf::from("./assets/editPage.js")));
       below = below + r#"
 <style>
 *[data-editable] {
