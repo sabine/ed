@@ -161,7 +161,7 @@ document.addEventListener("DOMContentLoaded", function () {
       return function render (vm, menuData) {
           console.log(["render", data]);
           
-          return el("div", {style: "background: #444; padding:12px; z-index:99999; color: gainsboro; position: fixed; "+(menuData.minimized?"left":"right")+":0; bottom:0; transition: 0.5s; width:"+(menuData.minimized?"20%":"80%")}, [
+          return el("div", {style: "background: #444; padding:12px; z-index:99999; color: gainsboro; position: fixed; "+(!menuData.minimized?"left":"right")+":0; bottom:0; transition: 0.5s; width:"+(menuData.minimized?"20%":"70%")}, [
               el("span", {style: "float:right", onclick: function () {
                   console.log("minimized");
                   menuData.minimized = !menuData.minimized;

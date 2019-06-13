@@ -5,7 +5,8 @@ pub fn upload (host: &str, user: &str, pass: &str, remote: &str, source_path: &s
   ftp_stream.login(user, pass).unwrap();
   println!("ls: {}", ftp_stream.list(None).unwrap().join("\n"));
 
-  ftp_stream.rmdir("/");
+  // TODO: this won't work, we need to remove files individually?
+  //ftp_stream.rmdir(remote);
 
   for entry in walkdir::WalkDir::new(&source_path) {
     let e = entry.unwrap();
@@ -26,7 +27,28 @@ pub fn upload (host: &str, user: &str, pass: &str, remote: &str, source_path: &s
       let target = e.path().strip_prefix(&source_path).unwrap();
       println!("source: {:?}", source);
       println!("target: {:?}", target);
-      ftp_stream.put(&target.to_str().unwrap().replace("\\","/"), &mut source);
+      
+      let target_path = target.to_str().unwrap().replace("\\","/");
+      
+      match ftp_stream.size(&target_path) {
+        Ok(f) => {
+          match f {
+            None => {
+              ftp_stream.put(&target_path, &mut source);
+            },
+            Some(s) => {
+              if source.metadata().unwrap().len() as usize == s {
+                println!("Size is the same, probably unchanged.");
+              } else {
+                ftp_stream.put(&target_path, &mut source);
+              }
+            },
+          }
+        },
+        Err(_) => {
+          ftp_stream.put(&target_path, &mut source);
+        },
+      }
     }
   }
 

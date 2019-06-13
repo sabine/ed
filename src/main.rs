@@ -27,8 +27,9 @@ use std::io::prelude::*;
 
 mod utils;
 mod thumbnail;
+mod assets;
 mod renderer;
-use renderer::{TeraRenderer, Renderer, RendererConfig, RendererResult, ContentType, load_content_types};
+use renderer::{TeraRenderer, Renderer, ContentType, load_content_types};
 mod css;
 mod paths;
 mod ftp_upload;
@@ -42,7 +43,7 @@ use paths::*;
 enum Page{
   MainPage,
   ProjectPage { path: std::path::PathBuf, config: serde_json::value::Value, pages: Vec<String> },
-  EditPage {path: std::path::PathBuf, filename: String},
+  EditPage {path: std::path::PathBuf, filename: String, rendered: renderer::Document},
 }
 
 #[derive(Deserialize)]
@@ -87,7 +88,7 @@ fn set_html(webview: &mut WebView<'_,()>, s: &str) -> () {
   webview.eval(html);
 }
 
-fn render(path: &std::path::Path, page: String, url: String, editable: bool) -> RendererResult {
+fn render(path: &std::path::Path, page: String, url: String, editable: bool) -> renderer::Document {
   let r = TeraRenderer::new(path).unwrap();
 
   let json_filename = page.clone()+".json";
@@ -96,12 +97,10 @@ fn render(path: &std::path::Path, page: String, url: String, editable: bool) -> 
   let p = path.join("pages").join(json_filename);
   println!("Path: {}\n", path.to_string_lossy());
   println!("Datafile: {}\n", p.to_string_lossy());
-  let datastring = utils::read_string_from_file(&p);
-
-  let json: serde_json::Value = serde_json::from_str(&datastring).expect("JSON was not well-formatted");
+  let json = utils::read_json_from_file(&p);
   
   println!("Rendering...");
-  let renderer_config = RendererConfig {
+  let renderer_config = renderer::Config {
     content_types: load_content_types(),
     template: (tera_filename).to_string(),
     path: url,
@@ -124,8 +123,8 @@ fn render_page (path: &std::path::Path, name: &str) -> () {
   let mut file = File::create(output_path(path).join(name.to_owned() +".html")).unwrap();
   file.write_all(&result.html.as_bytes());
   
-  for thumbnail_request in result.thumbnail_requests {
-    thumbnail::render_thumbnail(&path, &thumbnail_request);
+  for thumbnail in result.thumbnails {
+    thumbnail::render_thumbnail(&path, &thumbnail);
   }
 }
 
@@ -134,7 +133,7 @@ fn load_pages (p: &std::path::Path) -> Vec<String> {
               
   for entry in walkdir::WalkDir::new(&pages_path(&p)) {
     let e = entry.unwrap();
-    if e.file_type().is_file() {
+    if e.file_type().is_file() && e.path().extension() == Some(std::ffi::OsStr::new("json")) {
       println!("{}", e.path().display());
       pages.push(e.path().to_str().unwrap().replace(p.join("pages").to_str().unwrap(), "").replace(".json", "").replace("\\","/").replacen("/","",1));
     }
@@ -179,6 +178,8 @@ fn render_project (path: &std::path::Path, pages: &Vec<String>) -> () {
 
 impl Editor {
   fn route_to(&mut self, webview: &mut WebView<'_,()>, new_page: Page) -> () {
+    println!("Route To: {:?}", new_page);
+  
     self.current_page = new_page;
     webview.eval("window.location=\"http://localhost:54321\";");
     ()
@@ -267,14 +268,17 @@ impl Editor {
             panic!("Wrong page!");
           }
         };
-        self.route_to(webview, Page::EditPage{path:p, filename:filename});
+        let result = render(&p, filename.clone(), url_from_filename(&filename).to_string(), true);
+        
+        self.route_to(webview, Page::EditPage{path:p, filename:filename, rendered:result});
       },
       SavePage {data} => {
         match self.current_page {
-          Page::EditPage{ref path, ref filename} => {
-            println!("Save Page Data: {}\n", data);
+          Page::EditPage{ref path, ref filename, ..} => {
+            let datafilename = pages_path(path).join(filename).with_extension("json");
+            println!("Save Page Data: {}\nTo: {:?}\n", data, datafilename);
           
-            let mut file = File::create(pages_path(path).join("index.json")).unwrap();
+            let mut file = File::create(datafilename).unwrap();
             file.write_all(data.to_string().as_bytes());
           },
           _ => {
@@ -347,18 +351,15 @@ fn main() {
             "#, path=path.to_string_lossy(), edit=edit.join(""), render=js_button(Cmd::RenderProject, "Erstellen"), upload=js_button(Cmd::RenderAndUpload, "Erstellen und hochladen"), close=js_button(Cmd::CloseProject, "Zur&uuml;ck"))
             },
           
-          
-            Page::EditPage {ref path, ref filename} => {
-              let result = render(path, filename.clone(), url_from_filename(&filename).to_string(), true);
-              
-              result.html
+            Page::EditPage {ref path, ref filename, ref rendered} => {
+              rendered.html.clone()
             },
           };
           rouille::Response::html(html_string).with_no_cache()
         },
         _ => {
           match rouille_editor.read().unwrap().current_page {
-            Page::EditPage{ref path, ref filename} => {
+            Page::EditPage{ref path, ref filename, ref rendered} => {
               let response = rouille::match_assets(&request, &asset_path(&path));
               if response.is_success() {
                 return response.with_no_cache();

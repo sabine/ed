@@ -9,17 +9,13 @@ use std::io::prelude::*; // to read from file
 
 use thumbnail;
 use data;
+use assets;
 
 fn string_from_file(path: std::path::PathBuf) -> String {
   let mut file = std::fs::File::open(path).unwrap();
   let mut string = String::new();
   file.read_to_string(&mut string).unwrap();
   string.clone()
-}
-
-fn filter_asset (value: Value, args: HashMap<String, Value>) -> Result<Value> {
-  let s = try_get_value!("filter_thumbnail", "value", String, value);
-  Ok(to_value(&s).unwrap())
 }
 
 pub fn load_content_types () -> std::collections::HashMap<String, ContentType> {
@@ -73,22 +69,47 @@ document.addEventListener("DOMContentLoaded", function () {
   font-family: inherit;
   font-size: inherit;
   }
+  
+  .ql-video > iframe {
+    width:600px;
+    height:400px;
+  }
   </style>
       "#.to_string()),
     editor_below: Some(r#"<script>    
 document.addEventListener("DOMContentLoaded", function () {
 
+  const toolbarOptions = [
+    //[{ font: [] }],
+    [{ header: 1 }, { header: 2 }],
+    //[{ header: [1, 2, 3, 4, 5, 6, false] }],
+    //[{ align: [] }],
+    ['bold', 'italic', 'underline', 'strike'],
+    //['blockquote', 'code-block'],
+    //[{ script: 'sub' }, { script: 'super' }],
+    //[{ indent: '-1' }, { indent: '+1' }],
+    //[{ color: [] }, { background: [] }],
+    ['video'],
+    ['image'],
+  ];
+  
+  // TODO: make a new repository for quill customizations used in this editor, and/or extract the js editor altogether from the rust code
+    
   console.log("Initializing quill editors!");
   Array.from(document.querySelectorAll('[data-editable=quill]')).forEach(function (el) {
       console.log(["intializing quill", el]);
       let fieldname = el.getAttribute("data-fieldname");
       let quill = new Quill(el, {
-          theme: 'bubble'
+        modules: {
+          toolbar: toolbarOptions,
+        },
+        theme: 'bubble'
       });
+      
       console.log(["quill", quill]);
       
       quill.setContents(window.data["_"+fieldname]);
-      
+            
       quill.on('text-change', function(delta, oldDelta, source) {
           console.log(["text-change", window.data]);
           window.updateValue(fieldname, quill.root.innerHTML);
@@ -156,8 +177,8 @@ fn filter_thumbnail (value: Value, args: HashMap<String, Value>) -> Result<Value
   let height = args.get("height").unwrap();
   let path_string = "/thumbnails/".to_string()+&format!("{}-{}/", width, height)+&s;
   
-  tmp.lock().unwrap().thumbnail_requests.push(
-    thumbnail::ThumbnailRequest {
+  tmp.lock().unwrap().thumbnails.push(
+    thumbnail::Thumbnail {
       src: std::path::PathBuf::from(s.clone()),
       width: width.as_u64().unwrap() as u32,
       height: height.as_u64().unwrap() as u32,
@@ -166,6 +187,21 @@ fn filter_thumbnail (value: Value, args: HashMap<String, Value>) -> Result<Value
   
   Ok(to_value(path_string).unwrap())
 }
+
+fn filter_asset (value: Value, args: HashMap<String, Value>) -> Result<Value> {
+  let s = try_get_value!("filter_asset", "value", String, value);
+
+  let path_string = "/assets/".to_string()+&s;
+  
+  tmp.lock().unwrap().assets.push(
+    assets::Asset {
+      src: std::path::PathBuf::from(s.clone()),
+      url: path_string.clone(),
+    });
+  
+  Ok(to_value(path_string).unwrap())
+}
+
 
 #[derive(Debug)]
 #[derive(Clone)]
@@ -182,7 +218,7 @@ impl TeraRenderer {
 }
 
 #[derive(Debug)]
-pub struct RendererConfig {
+pub struct Config {
   pub content_types: HashMap<String, ContentType>,
   pub template: String,
   pub path: String,
@@ -204,11 +240,15 @@ fn render_content_type(content_type: &ContentType, editable: bool, data: String,
   }
 }
 
-impl std::fmt::Display for RendererResult {
+impl std::fmt::Display for Document {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "sizeof Html: {}\n", self.html.len())?;
-        write!(f, "ThumbnailRequests:\n")?;
-        for v in &self.thumbnail_requests {
+        write!(f, "Assets:\n")?;
+        for v in &self.assets {
+            write!(f, "{},", v)?;
+        }
+        write!(f, "Thumbnails:\n")?;
+        for v in &self.thumbnails {
             write!(f, "{},", v)?;
         }
         Ok(())
@@ -216,30 +256,34 @@ impl std::fmt::Display for RendererResult {
 }
 
 #[derive(Debug)]
-pub struct RendererResult {
+pub struct Document {
   pub html: String,
-  pub thumbnail_requests: Vec<thumbnail::ThumbnailRequest>
+  pub thumbnails: Vec<thumbnail::Thumbnail>,
+  pub assets: Vec<assets::Asset>
 }
 
 
 struct Tmp {
-  thumbnail_requests: Vec<thumbnail::ThumbnailRequest>
+  thumbnails: Vec<thumbnail::Thumbnail>,
+  assets: Vec<assets::Asset>
 }
 
 lazy_static! {
-  static ref tmp: std::sync::Mutex<Tmp> = std::sync::Mutex::new(Tmp { thumbnail_requests: [].to_vec() });
+  static ref tmp: std::sync::Mutex<Tmp> = std::sync::Mutex::new(Tmp { thumbnails: [].to_vec(), assets: [].to_vec() });
 }
 
 fn clear_tmp() -> () {
-  tmp.lock().unwrap().thumbnail_requests.clear();
+  let mut t = tmp.lock().unwrap();
+  t.thumbnails.clear();
+  t.assets.clear();
 }
 
 pub trait Renderer {
-  fn render(&self, config: RendererConfig, data: serde_json::Value) -> Result<RendererResult>;
+  fn render(&self, config: Config, data: serde_json::Value) -> Result<Document>;
 }
 
 impl Renderer for TeraRenderer {
-  fn render(&self, config: RendererConfig, data: serde_json::Value) -> Result<RendererResult> {
+  fn render(&self, config: Config, data: serde_json::Value) -> Result<Document> {
     println!("Rendering template: {}", &config.template);
   
     let mut t =  Tera::new(&self.path.join("templates/**/*.tera").to_str().unwrap()).unwrap();
@@ -288,16 +332,19 @@ window.data = {data};
     clear_tmp();
     match t.render(&config.template, &context) {
       Ok(html) =>
-        Ok(RendererResult {
-          thumbnail_requests: tmp.lock().unwrap().thumbnail_requests.clone()
+        Ok(Document {
+          thumbnails: tmp.lock().unwrap().thumbnails.clone()
+          , assets: tmp.lock().unwrap().assets.clone()
           , html: html
         }),
       Err(e) => {
+        println!("Error: {:?}", e);
         clear_tmp();
-        println!("Not found! Falling back to base.tera");
+        println!("Falling back to base.tera");
         match t.render("base.tera", &context) {
-          Ok(html2) => Ok(RendererResult {
-              thumbnail_requests: tmp.lock().unwrap().thumbnail_requests.clone()
+          Ok(html2) => Ok(Document {
+              thumbnails: tmp.lock().unwrap().thumbnails.clone()
+              , assets: tmp.lock().unwrap().assets.clone()
               , html: html2
           }),
           Err(e) => Err(e),
