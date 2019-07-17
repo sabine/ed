@@ -221,7 +221,6 @@ impl TeraRenderer {
 pub struct Config {
   pub content_types: HashMap<String, ContentType>,
   pub template: String,
-  pub path: String,
   pub editable: bool,
 }
 
@@ -255,8 +254,9 @@ impl std::fmt::Display for Document {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Document {
+  pub url: String,
   pub html: String,
   pub thumbnails: Vec<thumbnail::Thumbnail>,
   pub assets: Vec<assets::Asset>
@@ -279,11 +279,11 @@ fn clear_tmp() -> () {
 }
 
 pub trait Renderer {
-  fn render(&self, config: Config, data: serde_json::Value) -> Result<Document>;
+  fn render(&self, config: Config, data: serde_json::Value, url: String) -> Result<Document>;
 }
 
 impl Renderer for TeraRenderer {
-  fn render(&self, config: Config, data: serde_json::Value) -> Result<Document> {
+  fn render(&self, config: Config, data: serde_json::Value, url: String) -> Result<Document> {
     println!("Rendering template: {}", &config.template);
   
     let mut t =  Tera::new(&self.path.join("templates/**/*.tera").to_str().unwrap()).unwrap();
@@ -324,31 +324,26 @@ window.data = {data};
     context.insert("meta_title", &data.get("meta_title").unwrap_or(&emptystring));
     context.insert("meta_description", &data.get("meta_description").unwrap_or(&emptystring));
     context.insert("editable", &config.editable);
-    context.insert("path", &config.path);
+    context.insert("path", &url);
     context.insert("data", &data);
     context.insert("above", &above);
     context.insert("below", &below);
     
     clear_tmp();
     match t.render(&config.template, &context) {
-      Ok(html) =>
+      Ok(html) => {
+        let mut t = tmp.lock().unwrap();
         Ok(Document {
-          thumbnails: tmp.lock().unwrap().thumbnails.clone()
-          , assets: tmp.lock().unwrap().assets.clone()
+          thumbnails: t.thumbnails.clone()
+          , assets: t.assets.clone()
           , html: html
-        }),
+          , url: url
+        })
+      },
       Err(e) => {
         println!("Error: {:?}", e);
         clear_tmp();
-        println!("Falling back to base.tera");
-        match t.render("base.tera", &context) {
-          Ok(html2) => Ok(Document {
-              thumbnails: tmp.lock().unwrap().thumbnails.clone()
-              , assets: tmp.lock().unwrap().assets.clone()
-              , html: html2
-          }),
-          Err(e) => Err(e),
-        }
+        Err(e)
       },
     }
   }

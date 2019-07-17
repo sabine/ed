@@ -26,6 +26,8 @@ pub fn render_thumbnail (path: &std::path::Path, thumbnail: &Thumbnail) -> () {
   let image_path = &path.join(&thumbnail.src);
   println!("loading image: {:?}", image_path);
   
+  // TODO: spit out a file stream thing instead of saving to file - so that this can be served by the internal web server
+  
   match image::open(image_path) {
     Ok(img) => {
       img.thumbnail(thumbnail.width, thumbnail.height).save(&p);

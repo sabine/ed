@@ -1,5 +1,6 @@
 use paths;
 use utils;
+//use csv;
 
 
 /*pub struct Data {
@@ -33,6 +34,70 @@ fn get_images(path: &std::path::Path, folder: &std::path::Path) -> serde_json::V
     
   println!("get_images: {:?}", images);
   json!(images)
+}
+
+
+#[derive(Debug, Deserialize, Eq, PartialEq)]
+struct CsvProdukt {
+  id: String,
+  name: String,
+  price: u32,
+  images: String,
+  itemtype: String,
+  categories: String,
+  description: String
+}
+
+#[derive(Debug, Serialize, Eq, PartialEq)]
+struct Image {
+  src: String,
+  small_thumbnail: String,
+  large_thumbnail: String
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize)]
+struct Produkt {
+  id: String,
+  name: String,
+  price: u32,
+  images: Vec<Image>,
+  itemtype: String,
+  categories: Vec<String>,
+  description: String
+}
+
+//id,name,price,images,itemtype,categories,description
+
+pub fn load_csv(path: &std::path::Path, args: &std::collections::HashMap<String, serde_json::Value>) -> serde_json::Value {
+  let folder = args.get("name").unwrap().as_str().unwrap();
+  let filename = &paths::data_path(&path).join(folder).join("data.csv");
+  println!("data file name: {:?}", filename);
+  let reader = std::fs::File::open(filename).unwrap();
+  
+  let mut rdr = csv::Reader::from_reader(reader);
+  let mut data = Vec::new();
+
+  for result in rdr.deserialize() {
+    println!("r: {:?}", result);
+    let record: CsvProdukt = result.unwrap();
+    let p: Produkt = Produkt {
+      id: record.id,
+      name: record.name,
+      price: record.price,
+      images: record.images.split(",").map(|s| Image { 
+      // TODO: generate small and large thumbnails
+        src: s.to_string(),
+        small_thumbnail: s.to_string(),
+        large_thumbnail: s.to_string()}).collect(),
+      itemtype: record.itemtype,
+      categories: record.categories.split(",").map(|s| s.to_string()).collect(),
+      description: record.description };
+    data.push(serde_json::to_value(p).unwrap());  
+  }
+  
+  println!("CSV data: {:?}", data);
+  
+  serde_json::value::Value::Array(data)
 }
 
 pub fn load_references(path: &std::path::Path, args: &std::collections::HashMap<String, serde_json::Value>) -> serde_json::Value {
@@ -110,6 +175,7 @@ pub fn load (path: &std::path::Path, args: &std::collections::HashMap<String, se
     
       json
     },
+    "csv" => load_csv(path, args),
     "references" => load_references(path, args),
     "products" => load_products(path, args),
     "lua" => unimplemented!(),

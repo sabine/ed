@@ -21,5 +21,9 @@ pub fn collect_asset (path: &std::path::Path, asset: &Asset) -> () {
   
   std::fs::create_dir_all(p.parent().unwrap());
 
+  // TODO: return a file stream instead of saving, so that this can be used by the internal web server
+  
+  // or maybe don't refer and collect every asset individually, but rather traverse all the data folders to collect assets without making sure they are being used in the web page
+  
   std::fs::copy(&asset.src, &p);
 }

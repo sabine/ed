@@ -22,6 +22,7 @@ use web_view::*;
 
 use std::thread;
 use std::fs::File;
+extern crate csv;
 //use std::error::Error;
 use std::io::prelude::*;
 
@@ -83,48 +84,121 @@ fn url_from_filename (filename: &str) -> String {
 }
 
 
-fn set_html(webview: &mut WebView<'_,()>, s: &str) -> () {
-  let html = &format!("{}{}", "document.documentElement.innerHTML=", escape(s));
-  webview.eval(html);
+enum PageType {
+  StaticPage { name: String },
+  DataPage { name: String, data_file: std::path::PathBuf }
 }
 
-fn render(path: &std::path::Path, page: String, url: String, editable: bool) -> renderer::Document {
+fn read_page_data(path: &std::path::Path, page: String, url:String) -> Vec<(String,
+serde_json::Value)> {
+  
+  let config_filename = path.join("pages").join(page.clone()+".conf");
+  let page_type = match std::fs::File::open(&config_filename) {
+    Ok(_) => {
+      PageType::DataPage { name: page.clone(), data_file: path.join("data").join("tassen").join("data.csv") }
+    },
+    Err(_) => PageType::StaticPage { name: page.clone() }
+  };
+  
+  match page_type {
+    PageType::DataPage { name, data_file } => {
+      let mut result: Vec<(String, serde_json::Value)> = Vec::new();
+      
+      let reader = std::fs::File::open(data_file).unwrap();
+      let mut rdr = csv::Reader::from_reader(reader);
+
+      for r in rdr.deserialize() {
+        let map: serde_json::Map<String, serde_json::Value> = r.unwrap();
+        
+        let json = serde_json::Value::Object(map);
+        result.push((name.clone()+json.get("id").unwrap().as_str().unwrap(), json));
+      }
+      println!("DataPage {:?}", result);
+      result    
+    },
+    PageType::StaticPage { name } => {
+      let json_filename = path.join("pages").join(page.clone()+".json");
+      println!("Loading page data from JSON: {}\n", json_filename.to_string_lossy());
+      let json = utils::read_json_from_file(&json_filename);
+
+      let mut result = Vec::new();
+      result.push((url, json));
+      result    
+    }
+  }
+}
+
+  // TODO: check if there is a more lightweight way of finding out whether a file exists
+fn file_exists(path: &std::path::Path) -> bool {
+  match std::fs::File::open(&path) {
+    Ok(_) => true,
+    Err(_) => false
+  }
+}
+
+fn render(path: &std::path::Path, page: String, url: String, editable: bool) -> Vec<renderer::Document> {
   let r = TeraRenderer::new(path).unwrap();
 
-  let json_filename = page.clone()+".json";
-  let tera_filename = page.clone()+".tera";
-
-  let p = path.join("pages").join(json_filename);
   println!("Path: {}\n", path.to_string_lossy());
-  println!("Datafile: {}\n", p.to_string_lossy());
-  let json = utils::read_json_from_file(&p);
   
-  println!("Rendering...");
-  let renderer_config = renderer::Config {
-    content_types: load_content_types(),
-    template: (tera_filename).to_string(),
-    path: url,
-    editable: editable,
+  let tera_filename = page.clone()+".tera";
+  
+  let data = read_page_data(path, page, url);
+  
+  let template_path = &paths::templates_path(&path).join(tera_filename.clone());
+  println!("Checking if '{:?}' exists...", template_path);
+  
+  let template = if file_exists(template_path) { 
+      tera_filename.to_string() 
+    }
+    else { 
+      "base.tera".to_string() 
     };
-    
-  let result = r.render(renderer_config, json).unwrap();
+  
+  let mut result = Vec::new();
+  for (url, json) in data {
+    println!("Rendering...");
+    let renderer_config = renderer::Config {
+      content_types: load_content_types(),
+      template: template.clone(),
+      editable: editable,
+      };
+  
+    result.push(r.render(renderer_config, json.clone(), url).unwrap());
+  }
   result
 }
 
+// TODO: sort out url handling with / prefix and no prefix and all that bullshit
+
 fn render_page (path: &std::path::Path, name: &str) -> () {
-  let result = render(path, name.to_string(), url_from_filename(&name).to_string(), false);
+  let results = render(path, name.to_string(), url_from_filename(&name).to_string(), false);
   
-  println!("{}", result);
-  println!("creating output_path: {:?}", output_path(&path).join(name));
   
-  std::fs::create_dir_all(output_path(&path).join(name));
-  println!("successful");
-  
-  let mut file = File::create(output_path(path).join(name.to_owned() +".html")).unwrap();
-  file.write_all(&result.html.as_bytes());
-  
-  for thumbnail in result.thumbnails {
-    thumbnail::render_thumbnail(&path, &thumbnail);
+  for result in results {
+    println!("url: {:?}", result.url);
+    
+    let filename = std::path::PathBuf::from(if result.url == "/" {
+      "index.html".to_string()
+    } else if result.url.ends_with("/") {
+      result.url+"index.html"
+    } else {
+      result.url+".html"
+    });
+    
+    let result_path = output_path(&path).join(filename);
+    
+    println!("creating output_path: {:?}", result_path);
+    
+    std::fs::create_dir_all(result_path.parent().unwrap().clone());
+    println!("successful");
+    
+    let mut file = File::create(result_path).unwrap();
+    file.write_all(&result.html.as_bytes());
+    
+    for thumbnail in result.thumbnails {
+      thumbnail::render_thumbnail(&path, &thumbnail);
+    }
   }
 }
 
@@ -133,9 +207,11 @@ fn load_pages (p: &std::path::Path) -> Vec<String> {
               
   for entry in walkdir::WalkDir::new(&pages_path(&p)) {
     let e = entry.unwrap();
-    if e.file_type().is_file() && e.path().extension() == Some(std::ffi::OsStr::new("json")) {
+    if e.file_type().is_file() && ((e.path().extension() == Some(std::ffi::OsStr::new("json")))
+    || (e.path().extension() == Some(std::ffi::OsStr::new("conf")))
+    ) {
       println!("{}", e.path().display());
-      pages.push(e.path().to_str().unwrap().replace(p.join("pages").to_str().unwrap(), "").replace(".json", "").replace("\\","/").replacen("/","",1));
+      pages.push(e.path().to_str().unwrap().replace(p.join("pages").to_str().unwrap(), "").replace(".json", "").replace(".conf", "").replace("\\","/").replacen("/","",1));
     }
   }
   pages
@@ -178,7 +254,7 @@ fn render_project (path: &std::path::Path, pages: &Vec<String>) -> () {
 
 impl Editor {
   fn route_to(&mut self, webview: &mut WebView<'_,()>, new_page: Page) -> () {
-    println!("Route To: {:?}", new_page);
+    //println!("Route To: {:?}", new_page);
   
     self.current_page = new_page;
     webview.eval("window.location=\"http://localhost:54321\";");
@@ -268,9 +344,10 @@ impl Editor {
             panic!("Wrong page!");
           }
         };
-        let result = render(&p, filename.clone(), url_from_filename(&filename).to_string(), true);
+        let results = render(&p, filename.clone(), url_from_filename(&filename).to_string(), true);
+        let result = results.first().unwrap();
         
-        self.route_to(webview, Page::EditPage{path:p, filename:filename, rendered:result});
+        self.route_to(webview, Page::EditPage{path:p, filename:filename, rendered: (*result).clone()});
       },
       SavePage {data} => {
         match self.current_page {

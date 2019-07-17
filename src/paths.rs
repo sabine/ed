@@ -13,3 +13,7 @@ pub fn pages_path (path: &std::path::Path) -> std::path::PathBuf {
 pub fn data_path (path: &std::path::Path) -> std::path::PathBuf {
   path.join("data/")
 }
+
+pub fn templates_path (path: &std::path::Path) -> std::path::PathBuf {
+  path.join("templates/")
+}
