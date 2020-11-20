@@ -14,13 +14,13 @@ pub fn compile_sass(path: &std::path::Path, output_path: &std::path::Path) -> St
   let mut file = match std::fs::File::create(&path) {
     Err(why) => panic!("couldn't create {}: {}",
                        display,
-                       why.description()),
+                       why.to_string()),
     Ok(file) => file,
   };
 
   match file.write_all(&r) {
     Err(why) => {
-        panic!("couldn't write to {}: {}", display, why.description())
+        panic!("couldn't write to {}: {}", display, why.to_string())
     },
     Ok(_) => println!("successfully wrote to {}", display),
   };

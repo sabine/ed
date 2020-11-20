@@ -60,7 +60,7 @@ document.addEventListener("DOMContentLoaded", function () {
   <link rel="stylesheet" href="/quill.bubble.css">
   <style>
   .ql-editor {
-  padding: 0;
+  padding: 12px;
   height: auto;
   }
 
@@ -85,6 +85,7 @@ document.addEventListener("DOMContentLoaded", function () {
     //[{ header: [1, 2, 3, 4, 5, 6, false] }],
     //[{ align: [] }],
     ['bold', 'italic', 'underline', 'strike'],
+    ['link'],
     //['blockquote', 'code-block'],
     //[{ script: 'sub' }, { script: 'super' }],
     //[{ indent: '-1' }, { indent: '+1' }],
@@ -93,7 +94,7 @@ document.addEventListener("DOMContentLoaded", function () {
     ['image'],
   ];
   
-  // TODO: make a new repository for quill customizations used in this editor, and/or extract the js editor altogether from the rust code
+  // TODO: make a new Box<tera::Function>repository for quill customizations used in this editor, and/or extract the js editor altogether from the rust code
     
   console.log("Initializing quill editors!");
   Array.from(document.querySelectorAll('[data-editable=quill]')).forEach(function (el) {
@@ -169,37 +170,51 @@ fn make_data_function (path: std::path::PathBuf) -> GlobalFn {
   })
 }
 
+fn filter_split (value: Value, args: HashMap<String, Value>) -> Result<Value> {
+  let s = try_get_value!("filter_split", "value", String, value);
+  let delim = match args.get("delim") {
+    Some(d) => d.as_str().unwrap_or(","),
+    None => ","
+  };
+  let result: Vec<&str> = s.split(delim).collect();
+  
+  Ok(to_value(result).unwrap())
+}
 
 fn filter_thumbnail (value: Value, args: HashMap<String, Value>) -> Result<Value> {
   let s = try_get_value!("filter_thumbnail", "value", String, value);
   // TODO
   let width = args.get("width").unwrap();
   let height = args.get("height").unwrap();
-  let path_string = "/thumbnails/".to_string()+&format!("{}-{}/", width, height)+&s;
   
-  tmp.lock().unwrap().thumbnails.push(
-    thumbnail::Thumbnail {
-      src: std::path::PathBuf::from(s.clone()),
-      width: width.as_u64().unwrap() as u32,
-      height: height.as_u64().unwrap() as u32,
-      url: path_string.clone(),
-    });
+  let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("SYSTEM TIME ERROR").as_secs();
   
-  Ok(to_value(path_string).unwrap())
+  let path_string = format!("/thumbnails/{}-{}-{}", width, height, &s);
+  
+  let new_thumbnail = thumbnail::Thumbnail {
+    src: std::path::PathBuf::from(s.clone()),
+    width: width.as_u64().unwrap() as u32,
+    height: height.as_u64().unwrap() as u32,
+    url: path_string.clone(),
+  };
+  tmp.lock().unwrap().thumbnails.insert(format!("{}",&new_thumbnail), new_thumbnail);
+  
+  Ok(to_value(format!("{}#{}",path_string,now)).unwrap())
 }
 
 fn filter_asset (value: Value, args: HashMap<String, Value>) -> Result<Value> {
   let s = try_get_value!("filter_asset", "value", String, value);
 
-  let path_string = "/assets/".to_string()+&s;
+  let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("SYSTEM TIME ERROR").as_secs();
+  let path_string = format!("/assets/{}",&s);
   
   tmp.lock().unwrap().assets.push(
     assets::Asset {
-      src: std::path::PathBuf::from(s.clone()),
+      src: std::path::PathBuf::from(&s.clone()),
       url: path_string.clone(),
     });
   
-  Ok(to_value(path_string).unwrap())
+  Ok(to_value(format!("{}#{}",path_string,now)).unwrap())
 }
 
 
@@ -247,7 +262,7 @@ impl std::fmt::Display for Document {
             write!(f, "{},", v)?;
         }
         write!(f, "Thumbnails:\n")?;
-        for v in &self.thumbnails {
+        for (k, v) in &self.thumbnails {
             write!(f, "{},", v)?;
         }
         Ok(())
@@ -258,18 +273,18 @@ impl std::fmt::Display for Document {
 pub struct Document {
   pub url: String,
   pub html: String,
-  pub thumbnails: Vec<thumbnail::Thumbnail>,
+  pub thumbnails: HashMap<String, thumbnail::Thumbnail>,
   pub assets: Vec<assets::Asset>
 }
 
 
 struct Tmp {
-  thumbnails: Vec<thumbnail::Thumbnail>,
+  thumbnails: HashMap<String,thumbnail::Thumbnail>,
   assets: Vec<assets::Asset>
 }
 
 lazy_static! {
-  static ref tmp: std::sync::Mutex<Tmp> = std::sync::Mutex::new(Tmp { thumbnails: [].to_vec(), assets: [].to_vec() });
+  static ref tmp: std::sync::Mutex<Tmp> = std::sync::Mutex::new(Tmp { thumbnails: HashMap::new(), assets: [].to_vec() });
 }
 
 fn clear_tmp() -> () {
@@ -288,6 +303,7 @@ impl Renderer for TeraRenderer {
   
     let mut t =  Tera::new(&self.path.join("templates/**/*.tera").to_str().unwrap()).unwrap();
     t.register_filter("asset", filter_asset);
+    t.register_filter("split", filter_split);
     t.register_function("content", make_content_function());
     t.register_function("data", make_data_function(self.path.to_path_buf()));
     t.register_filter("thumbnail", filter_thumbnail);

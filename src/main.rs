@@ -8,6 +8,7 @@ extern crate notify;
 use notify::{RecommendedWatcher, Watcher, RecursiveMode, DebouncedEvent};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Duration;
+use std::collections::HashMap;
 
 #[macro_use]
 extern crate rouille;
@@ -79,7 +80,7 @@ fn url_from_filename (filename: &str) -> String {
   if filename == "index" {
     "/".to_string()
   } else {
-    filename.replace("/index", "/")
+    ["/".to_string(),filename.replace("/index", "/")].concat()
   }
 }
 
@@ -171,19 +172,23 @@ fn render(path: &std::path::Path, page: String, url: String, editable: bool) -> 
 
 // TODO: sort out url handling with / prefix and no prefix and all that bullshit
 
-fn render_page (path: &std::path::Path, name: &str) -> () {
+fn render_page (path: &std::path::Path, name: &str) -> HashMap<String, thumbnail::Thumbnail> {
   let results = render(path, name.to_string(), url_from_filename(&name).to_string(), false);
   
-  
+  let mut thumbnails = HashMap::new();
   for result in results {
     println!("url: {:?}", result.url);
     
-    let filename = std::path::PathBuf::from(if result.url == "/" {
+    let p = result.url.char_indices()
+        .next()
+        .and_then(|(i, _)| result.url.get(i + 1..))
+        .unwrap_or("").to_string();
+    let filename = std::path::PathBuf::from(if p == "" {
       "index.html".to_string()
     } else if result.url.ends_with("/") {
-      result.url+"index.html"
+      p+"index.html"
     } else {
-      result.url+".html"
+      p+".html"
     });
     
     let result_path = output_path(&path).join(filename);
@@ -196,10 +201,10 @@ fn render_page (path: &std::path::Path, name: &str) -> () {
     let mut file = File::create(result_path).unwrap();
     file.write_all(&result.html.as_bytes());
     
-    for thumbnail in result.thumbnails {
-      thumbnail::render_thumbnail(&path, &thumbnail);
-    }
-  }
+    thumbnails.extend(result.thumbnails);
+  };
+  
+  thumbnails
 }
 
 fn load_pages (p: &std::path::Path) -> Vec<String> {
@@ -233,8 +238,14 @@ fn render_project (path: &std::path::Path, pages: &Vec<String>) -> () {
   println!("rendering project: {:?}", path);
   std::fs::remove_dir_all(output_path(&path));
   
+  let mut thumbnails = HashMap::new();
+  
   for page in pages {
-    render_page(path, page);
+    thumbnails.extend(render_page(path, page));
+  }
+  
+  for (k, thumbnail) in thumbnails {
+    thumbnail::render_thumbnail(&path, &thumbnail);
   }
   
   println!("copying assets:");

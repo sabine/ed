@@ -37,37 +37,6 @@ fn get_images(path: &std::path::Path, folder: &std::path::Path) -> serde_json::V
 }
 
 
-#[derive(Debug, Deserialize, Eq, PartialEq)]
-struct CsvProdukt {
-  id: String,
-  name: String,
-  price: u32,
-  images: String,
-  itemtype: String,
-  categories: String,
-  description: String
-}
-
-#[derive(Debug, Serialize, Eq, PartialEq)]
-struct Image {
-  src: String,
-  small_thumbnail: String,
-  large_thumbnail: String
-}
-
-#[derive(Debug, Eq, PartialEq, Serialize)]
-struct Produkt {
-  id: String,
-  name: String,
-  price: u32,
-  images: Vec<Image>,
-  itemtype: String,
-  categories: Vec<String>,
-  description: String
-}
-
-//id,name,price,images,itemtype,categories,description
-
 pub fn load_csv(path: &std::path::Path, args: &std::collections::HashMap<String, serde_json::Value>) -> serde_json::Value {
   let folder = args.get("name").unwrap().as_str().unwrap();
   let filename = &paths::data_path(&path).join(folder).join("data.csv");
@@ -79,20 +48,10 @@ pub fn load_csv(path: &std::path::Path, args: &std::collections::HashMap<String,
 
   for result in rdr.deserialize() {
     println!("r: {:?}", result);
-    let record: CsvProdukt = result.unwrap();
-    let p: Produkt = Produkt {
-      id: record.id,
-      name: record.name,
-      price: record.price,
-      images: record.images.split(",").map(|s| Image { 
-      // TODO: generate small and large thumbnails
-        src: s.to_string(),
-        small_thumbnail: s.to_string(),
-        large_thumbnail: s.to_string()}).collect(),
-      itemtype: record.itemtype,
-      categories: record.categories.split(",").map(|s| s.to_string()).collect(),
-      description: record.description };
-    data.push(serde_json::to_value(p).unwrap());  
+    let map: serde_json::Map<String, serde_json::Value> = result.unwrap();
+    let json = serde_json::Value::Object(map);
+    
+    data.push(json);  
   }
   
   println!("CSV data: {:?}", data);
@@ -131,39 +90,6 @@ pub fn load_references(path: &std::path::Path, args: &std::collections::HashMap<
   // TODO: move used images to target folder
 }
 
-pub fn load_products(path: &std::path::Path, args: &std::collections::HashMap<String, serde_json::Value>) -> serde_json::Value {
-  let name = args.get("name").unwrap().as_str().unwrap().to_string();
-
-  let products = std::fs::read_dir(&paths::data_path(&path).join(name)).unwrap();
-  
-  println!("Trying to load products..\n{:?}", products);
-  
-  let mut result = Vec::new();
-  
-  products
-    .filter_map(Result::ok)
-    .filter(|r| { r.file_type().unwrap().is_dir() })
-    .for_each(|r| {
-      let p = r.path().join("data.json");
-      println!("Reading from {:?}", p);
-      let o = utils::read_json_from_file(&p);
-      
-      let b = json!({
-        "id": r.path(),
-        "images": get_images(&path, &r.path().strip_prefix(&path).unwrap()),
-        "data": o,
-      });
-      result.push(b);
-    });
-    
-  println!("data: {:?}", result);
-  
-  json!(result)
-  
-  // TODO: move used images to target folder
-}
-
-
 pub fn load (path: &std::path::Path, args: &std::collections::HashMap<String, serde_json::Value>) -> serde_json::Value {
   // TODO: implement data source lookup
   match args.get("type").unwrap().as_str().unwrap() {
@@ -177,7 +103,6 @@ pub fn load (path: &std::path::Path, args: &std::collections::HashMap<String, se
     },
     "csv" => load_csv(path, args),
     "references" => load_references(path, args),
-    "products" => load_products(path, args),
     "lua" => unimplemented!(),
       // TODO: allow lua scripts to load data?
     _ => unimplemented!(),
