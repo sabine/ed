@@ -56,8 +56,13 @@ document.addEventListener("DOMContentLoaded", function () {
   };
   let content_type_quill = ContentType {
     editor_above: Some(r#"
-  <script src="/quill.min.js"></script>
-  <link rel="stylesheet" href="/quill.bubble.css">
+  <!-- Main Quill library -->
+<script src="//cdn.quilljs.com/1.3.6/quill.min.js"></script>
+
+<!-- Theme included stylesheets -->
+<link href="//cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+<link href="//cdn.quilljs.com/1.3.6/quill.bubble.css" rel="stylesheet">
+
   <style>
   .ql-editor {
   padding: 12px;
@@ -84,6 +89,7 @@ document.addEventListener("DOMContentLoaded", function () {
     [{ header: 1 }, { header: 2 }],
     //[{ header: [1, 2, 3, 4, 5, 6, false] }],
     //[{ align: [] }],
+    [{ 'size': ['small', false, 'large', 'huge'] }],
     ['bold', 'italic', 'underline', 'strike'],
     ['link'],
     //['blockquote', 'code-block'],
@@ -199,7 +205,7 @@ fn filter_thumbnail (value: Value, args: HashMap<String, Value>) -> Result<Value
   };
   tmp.lock().unwrap().thumbnails.insert(format!("{}",&new_thumbnail), new_thumbnail);
   
-  Ok(to_value(format!("{}#{}",path_string,now)).unwrap())
+  Ok(to_value(format!("{}?t={}",path_string,now)).unwrap())
 }
 
 fn filter_asset (value: Value, args: HashMap<String, Value>) -> Result<Value> {
@@ -214,7 +220,7 @@ fn filter_asset (value: Value, args: HashMap<String, Value>) -> Result<Value> {
       url: path_string.clone(),
     });
   
-  Ok(to_value(format!("{}#{}",path_string,now)).unwrap())
+  Ok(to_value(format!("{}?t={}",path_string,now)).unwrap())
 }
 
 
@@ -310,8 +316,10 @@ impl Renderer for TeraRenderer {
     
     let mut above = String::new();
     let mut below = String::new();
-    
-    above = above + r#"<link rel="stylesheet" type="text/css" href="/main.css">"#;
+
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("SYSTEM TIME ERROR").as_secs();
+  
+    above = format!(r#"{}<link rel="stylesheet" type="text/css" href="/main.css?t={}">"#, above, &now);
     
     if config.editable {
       for (name, ct) in &config.content_types {
